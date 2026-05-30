@@ -1,0 +1,26 @@
+# ============================================================
+# Dependencias del pipeline ETL
+# Taller: Antigravity en acción — Build with AI 2026
+# ============================================================
+# ⚠️  IMPORTANTE: Usar exactamente estas versiones.
+#     Versiones más nuevas pueden causar conflictos de
+#     compatibilidad en Cloud Functions Gen2, específicamente
+#     entre google-cloud-storage y google-cloud-aiplatform.
+#
+# Error conocido con versiones más nuevas:
+#     ImportError: cannot import name 'storage' from 'google.cloud'
+# ============================================================
+
+# Descarga de archivos desde Cloud Storage
+google-cloud-storage==2.14.0
+
+# Inserción de datos en BigQuery
+google-cloud-bigquery==3.25.0
+
+# Vertex AI y Gemini 2.5 Flash para extracción inteligente
+# gemini-2.5-flash requiere al menos 512MB de memoria en la Cloud Function
+google-cloud-aiplatform==1.67.1
+vertexai==1.67.1
+
+# Framework de Cloud Functions — entrypoint de la función
+functions-framework==3.5.0

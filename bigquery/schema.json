@@ -1,0 +1,56 @@
+[
+  {
+    "name": "file_name",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Nombre del archivo procesado (ej: factura_001.pdf)"
+  },
+  {
+    "name": "processed_at",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "description": "Timestamp UTC del momento en que se procesó el documento"
+  },
+  {
+    "name": "vendor_name",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Nombre del proveedor o emisor del documento"
+  },
+  {
+    "name": "document_date",
+    "type": "DATE",
+    "mode": "NULLABLE",
+    "description": "Fecha del documento en formato YYYY-MM-DD"
+  },
+  {
+    "name": "document_number",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Número de documento, factura o referencia"
+  },
+  {
+    "name": "total_amount",
+    "type": "FLOAT",
+    "mode": "NULLABLE",
+    "description": "Monto total del documento como número decimal"
+  },
+  {
+    "name": "currency",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Código de moneda ISO 4217 de 3 letras (USD, BOB, EUR, etc)"
+  },
+  {
+    "name": "line_items",
+    "type": "JSON",
+    "mode": "NULLABLE",
+    "description": "Items del documento serializados como JSON. Formato: [{description: string, amount: float}]"
+  },
+  {
+    "name": "processing_status",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Estado del procesamiento: 'success' o 'error'"
+  }
+]
