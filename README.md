@@ -19,7 +19,7 @@ Pipeline ETL serverless que procesa documentos automáticamente usando **Gemini 
         ↓  [datos estructurados en JSON]
 📊  BigQuery
 ```
-
+![alt text](image-1.png)
 ---
 
 ## 📋 Prerrequisitos
@@ -195,21 +195,11 @@ No se requiere escribir código todavía.
    - **Cloud Build API**
    - **Cloud Storage API**
    - **BigQuery API**
-   - **Vertex AI API**
+   - **Agent Platform API**
    - **Eventarc API**
-   - **Cloud Run API**
+   - **Cloud Run Admin API**
    - **Cloud Pub/Sub API**
-
-> 💡 **Alternativa rápida desde Cloud Shell** (ver nota sobre Cloud Shell más abajo):
-> ```bash
-> export PROJECT_ID=$(gcloud config get-value project)
-> gcloud services enable \
->     cloudfunctions.googleapis.com cloudbuild.googleapis.com \
->     storage.googleapis.com bigquery.googleapis.com \
->     aiplatform.googleapis.com eventarc.googleapis.com \
->     run.googleapis.com pubsub.googleapis.com
-> ```
-
+![alt text](image.png)
 ---
 
 #### Paso 2 — Crear el bucket de Cloud Storage
@@ -286,7 +276,7 @@ No se requiere escribir código todavía.
 
 ---
 
-#### Paso 4 — Configurar permisos de Pub/Sub (Cloud Shell obligatorio)
+#### Paso 4 — Configurar permisos para el trigger de Eventarc (Cloud Shell obligatorio)
 
 > **¿Qué es Cloud Shell?**
 > Es una terminal de Linux que Google pone a tu disposición directamente en el navegador,
@@ -294,15 +284,27 @@ No se requiere escribir código todavía.
 > Para abrirla: click en el ícono `>_` en la esquina superior derecha de la consola de GCP.
 
 > **¿Por qué este paso?**
-> Para que Cloud Functions se active automáticamente cuando se sube un archivo,
-> usa un sistema de mensajería llamado Pub/Sub. La cuenta de servicio de Cloud Storage
-> necesita permiso para publicar en ese sistema. Sin este paso, el trigger no funciona.
+> Cloud Functions Gen2 usa Eventarc para recibir eventos de Cloud Storage. Para que
+> el trigger funcione correctamente se necesitan **4 permisos distintos** en distintas
+> cuentas de servicio. Sin alguno de ellos, el trigger se crea pero nunca se activa.
 
-Abrir **Cloud Shell** y ejecutar:
+Abrir **Cloud Shell** y ejecutar los siguientes comandos **en orden**:
 
 ```bash
+# Variables base
 export PROJECT_ID=$(gcloud config get-value project)
+export PROJECT_NUMBER=$(gcloud projects describe ${PROJECT_ID} --format="value(projectNumber)")
+echo "Proyecto: ${PROJECT_ID} | Número: ${PROJECT_NUMBER}"
+```
 
+---
+
+**Permiso 1 — Pub/Sub Publisher para la cuenta de servicio de Cloud Storage**
+
+Permite que Cloud Storage publique eventos en Pub/Sub cuando se sube un archivo.
+Sin este permiso, el evento nunca se genera.
+
+```bash
 # Crear la identidad de servicio de Cloud Storage
 gcloud beta services identity create \
     --service=storage.googleapis.com \
@@ -310,16 +312,100 @@ gcloud beta services identity create \
 
 # Obtener la cuenta de servicio de GCS
 export GCS_SA=$(gcloud storage service-agent --project=${PROJECT_ID})
-echo "Cuenta de servicio: ${GCS_SA}"
+echo "Cuenta de servicio GCS: ${GCS_SA}"
 
-# Asignar el rol de Pub/Sub Publisher
+# Asignar rol Pub/Sub Publisher
 gcloud projects add-iam-policy-binding ${PROJECT_ID} \
     --member="serviceAccount:${GCS_SA}" \
     --role="roles/pubsub.publisher" \
     --condition=None
 ```
 
-✅ Si muestra `Updated IAM policy`, el permiso fue asignado correctamente.
+✅ Resultado esperado: `Updated IAM policy for project [...]`
+
+---
+
+**Permiso 2 — Activar la API de Eventarc**
+
+Asegura que el agente de servicio de Eventarc esté correctamente inicializado.
+A veces no se activa aunque la API esté habilitada.
+
+```bash
+gcloud services enable eventarc.googleapis.com \
+    --project=${PROJECT_ID}
+```
+
+✅ Resultado esperado: el comando termina sin errores.
+
+---
+
+**Permiso 3 — Service Agent para Eventarc**
+
+Otorga al agente de Eventarc los permisos estructurales para gestionar triggers.
+Sin este permiso, Eventarc no puede crear ni mantener el trigger.
+
+```bash
+# Obtener la cuenta de servicio de Eventarc
+export EVENTARC_SA="service-${PROJECT_NUMBER}@gcp-sa-eventarc.iam.gserviceaccount.com"
+echo "Cuenta de servicio Eventarc: ${EVENTARC_SA}"
+
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:${EVENTARC_SA}" \
+    --role="roles/eventarc.serviceAgent" \
+    --condition=None
+```
+
+✅ Resultado esperado: `Updated IAM policy for project [...]`
+
+---
+
+**Permiso 4 — Event Receiver para la cuenta de Compute Engine**
+
+Cloud Functions Gen2 corre internamente sobre Cloud Run y usa la cuenta predeterminada
+de Compute Engine para gestionar los triggers de Eventarc.
+Sin este permiso, la función se despliega pero nunca recibe los eventos.
+
+```bash
+# Cuenta predeterminada de Compute Engine
+export COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+echo "Cuenta de servicio Compute: ${COMPUTE_SA}"
+
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:${COMPUTE_SA}" \
+    --role="roles/eventarc.eventReceiver" \
+    --condition=None
+```
+
+✅ Resultado esperado: `Updated IAM policy for project [...]`
+
+---
+
+**Verificar que los 4 permisos quedaron configurados**
+
+```bash
+echo "✅ Verificando permisos..."
+
+echo "1. Pub/Sub Publisher (GCS):"
+gcloud projects get-iam-policy ${PROJECT_ID} \
+    --flatten="bindings[].members" \
+    --filter="bindings.role=roles/pubsub.publisher" \
+    --format="value(bindings.members)" | grep "gs-project"
+
+echo "2. Eventarc Service Agent:"
+gcloud projects get-iam-policy ${PROJECT_ID} \
+    --flatten="bindings[].members" \
+    --filter="bindings.role=roles/eventarc.serviceAgent" \
+    --format="value(bindings.members)"
+
+echo "3. Eventarc Event Receiver (Compute):"
+gcloud projects get-iam-policy ${PROJECT_ID} \
+    --flatten="bindings[].members" \
+    --filter="bindings.role=roles/eventarc.eventReceiver" \
+    --format="value(bindings.members)" | grep "compute"
+```
+
+Si los 3 comandos devuelven las cuentas de servicio correspondientes, todo está listo.
+> ⚠️ **Nota para el taller:** Si en estos pasos te da error o no te funciona intenta reemplazando directamente con los valores reales de tu proyecto y no uses variables de entorno.
 
 ---
 
@@ -470,7 +556,7 @@ gsutil cp ~/taller-etl-pdf-pipeline/samples/sample_invoice.pdf \
 3. Click en `extracciones`
 4. Click en **"Vista previa"** para ver las filas
 
-**Desde Cloud Shell:**
+**Desde Cloud Shell:** (OPCIONAL)
 ```bash
 bq query --use_legacy_sql=false \
   "SELECT file_name, vendor_name, document_date, total_amount, currency, processing_status
@@ -478,7 +564,7 @@ bq query --use_legacy_sql=false \
    ORDER BY processed_at DESC
    LIMIT 5"
 ```
-
+![alt text](image-2.png)
 ---
 
 #### Paso 10 — Ver los logs de la Cloud Function
@@ -491,7 +577,8 @@ bq query --use_legacy_sql=false \
 2. Click en `process-document`
 3. Click en la pestaña **"Registros"**
 
-**Desde Cloud Shell:**
+![alt text](image-3.png)
+**Desde Cloud Shell:** (OPCIONAL)
 ```bash
 gcloud functions logs read process-document \
     --region=us-central1 \
